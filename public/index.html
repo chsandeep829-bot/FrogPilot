@@ -34,6 +34,21 @@
     <div class="notice">Keys are sent to the configured backend when you generate or edit. They are kept in this browser tab's session storage, not saved to GitHub by this UI. Only enter keys on a trusted HTTPS deployment.</div>
     <div id="providerList" class="provider-list"></div>
     <div class="provider-actions"><button id="addProviderBtn" class="secondary">+ Add another AI API</button><button id="clearKeysBtn" class="secondary">Clear all keys</button></div>
+
+    <hr class="soft-rule">
+    <h3 class="settings-heading">Cloud account & sync</h3>
+    <p class="muted">Connect Supabase to create accounts, save profile details and sync projects across devices. API keys are encrypted by the provider-vault Edge Function before database storage.</p>
+    <label for="supabaseUrl">Supabase project URL</label><input id="supabaseUrl" type="url" placeholder="https://your-project.supabase.co">
+    <label for="supabaseAnonKey">Supabase publishable/anon key</label><input id="supabaseAnonKey" type="password" autocomplete="off" placeholder="Supabase public anon key">
+    <div class="account-grid">
+      <div><label for="accountName">Your name</label><input id="accountName" maxlength="100" autocomplete="name" placeholder="Full name"></div>
+      <div><label for="accountEmail">Email</label><input id="accountEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>
+      <div><label for="accountPassword">Password</label><input id="accountPassword" type="password" autocomplete="current-password" placeholder="At least 8 characters"></div>
+    </div>
+    <div class="provider-actions"><button id="signUpBtn" class="secondary" type="button">Create account</button><button id="signInBtn" class="secondary" type="button">Sign in</button><button id="signOutBtn" class="secondary" type="button" disabled>Sign out</button></div>
+    <p id="accountStatus" class="muted" role="status">Enter your Supabase URL and public key, then sign in or create an account.</p>
+    <div class="provider-actions"><button id="saveCloudProfileBtn" class="secondary" type="button" disabled>Save profile</button><button id="saveVaultBtn" class="secondary" type="button" disabled>Save AI keys to encrypted vault</button><button id="loadVaultBtn" class="secondary" type="button" disabled>Load saved AI keys</button></div>
+    <h3 class="settings-heading">Cloud-saved projects</h3><div id="cloudProjects" class="jobs-list"><p class="muted">Sign in to sync your projects.</p></div>
     <hr class="soft-rule">
     <h3 class="settings-heading">Publishing</h3>
     <label for="deployAccessKey">Publish access key</label><input id="deployAccessKey" type="password" autocomplete="off" placeholder="Server DEPLOYMENT_ACCESS_KEY">
