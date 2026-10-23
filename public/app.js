@@ -68,6 +68,22 @@ function loadProviders() {
   if (Array.isArray(saved) && saved.length) saved.forEach(addProvider);
   else addProvider();
 }
+function loadSettings() {
+  try {
+    $("backendUrl").value = sessionStorage.getItem("forgepilot-backend-url") || "";
+    $("deployAccessKey").value = sessionStorage.getItem("forgepilot-deploy-key-session") || "";
+    $("customDomain").value = sessionStorage.getItem("forgepilot-custom-domain-session") || "";
+  } catch {}
+}
+function saveSettings() {
+  try {
+    sessionStorage.setItem("forgepilot-deploy-key-session", $("deployAccessKey").value);
+    sessionStorage.setItem("forgepilot-custom-domain-session", $("customDomain").value.trim());
+  } catch {}
+  saveBackendUrl();
+  saveProviders();
+  $("settingsStatus").textContent = "Settings saved for this browser tab session.";
+}
 async function checkHealth() {
   try {
     const data = await api("/api/health");
@@ -232,8 +248,11 @@ $("downloadBtn").addEventListener("click", () => { if (currentJobId) window.loca
 $("refreshBtn").addEventListener("click", () => currentJobId && loadJob(currentJobId).catch(e => showError(e.message)));
 $("reloadJobs").addEventListener("click", loadJobs);
 document.querySelectorAll(".example").forEach(btn => btn.addEventListener("click", () => { $("prompt").value = btn.dataset.prompt; $("prompt").focus(); }));
-try { $("backendUrl").value = sessionStorage.getItem("forgepilot-backend-url") || ""; } catch {}
+loadSettings();
 $("backendUrl").addEventListener("change", () => { saveBackendUrl(); checkHealth(); loadJobs(); });
+$("deployAccessKey").addEventListener("input", saveSettings);
+$("customDomain").addEventListener("input", saveSettings);
+$("saveSettingsBtn").addEventListener("click", saveSettings);
 loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);
 
 
