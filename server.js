@@ -39,46 +39,82 @@ function extractJson(text) {
   throw new Error("The AI response did not contain valid JSON. Try a clearer prompt or another model.");
 }
 
-async function callAI(systemPrompt, userPrompt) {
-  const baseUrl = (process.env.AI_BASE_URL || "").replace(/\/+$/, "");
-  const apiKey = process.env.AI_API_KEY || "";
-  const model = process.env.AI_MODEL || "";
-
-  if (!baseUrl || !apiKey || !model || apiKey === "replace-with-your-own-key") {
-    const err = new Error("AI is not configured. Copy .env.example to .env and set AI_BASE_URL, AI_API_KEY, and AI_MODEL.");
-    err.status = 503;
-    throw err;
-  }
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    }),
-    signal: AbortSignal.timeout(120000)
+function normalizeProviders(input) {
+  const list = Array.isArray(input) ? input : [];
+  const cleaned = list.slice(0, 12).map((p, i) => ({
+    name: String(p?.name || `Provider ${i + 1}`).trim().slice(0, 60),
+    baseUrl: String(p?.baseUrl || "").trim().replace(/\\/+$/, ""),
+    apiKey: String(p?.apiKey || "").trim(),
+    model: String(p?.model || "").trim()
+  })).filter(p => {
+    try { return /^https?:$/.test(new URL(p.baseUrl).protocol) && p.apiKey && p.model; }
+    catch { return false; }
   });
+  if (!cleaned.length && process.env.AI_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL &&
+      process.env.AI_API_KEY !== "replace-with-your-own-key") {
+    cleaned.push({
+      name: "Server default",
+      baseUrl: process.env.AI_BASE_URL.replace(/\\/+$/, ""),
+      apiKey: process.env.AI_API_KEY,
+      model: process.env.AI_MODEL
+    });
+  }
+  return cleaned;
+}
 
-  const raw = await response.text();
-  let payload;
-  try { payload = JSON.parse(raw); } catch (_) { payload = { raw }; }
-  if (!response.ok) {
-    const message = payload?.error?.message || payload?.message || `AI provider returned HTTP ${response.status}`;
-    const err = new Error(message);
-    err.status = response.status;
+function isFallbackWorthy(status, message) {
+  return [401, 402, 403, 408, 413, 429, 500, 502, 503, 504].includes(Number(status)) ||
+    /quota|credit|rate.?limit|capacity|temporar|overloaded|billing|insufficient|exhaust/i.test(String(message || ""));
+}
+
+async function callAI(systemPrompt, userPrompt, providerInput) {
+  const providers = normalizeProviders(providerInput);
+  if (!providers.length) {
+    const err = new Error("Add at least one AI provider with its name, OpenAI-compatible API base URL, API key, and model ID. Keys are used for this request and are not saved to project files.");
+    err.status = 400;
     throw err;
   }
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("AI provider returned no message content.");
-  return content;
+  const failures = [];
+  for (const provider of providers) {
+    try {
+      const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${provider.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          temperature: 0.2,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ]
+        }),
+        signal: AbortSignal.timeout(120000)
+      });
+      const raw = await response.text();
+      let payload;
+      try { payload = JSON.parse(raw); } catch (_) { payload = { raw }; }
+      if (!response.ok) {
+        const message = payload?.error?.message || payload?.message || `Provider returned HTTP ${response.status}`;
+        failures.push(`${provider.name}: ${message.slice(0, 220)}`);
+        if (isFallbackWorthy(response.status, message)) continue;
+        continue;
+      }
+      const content = payload?.choices?.[0]?.message?.content;
+      if (!content) {
+        failures.push(`${provider.name}: provider returned no message content`);
+        continue;
+      }
+      return { content, providerName: provider.name };
+    } catch (err) {
+      failures.push(`${provider.name}: ${String(err.message || "request failed").slice(0, 180)}`);
+    }
+  }
+  const err = new Error("All configured AI providers failed. Check provider keys, model IDs, and credits. Attempts: " + failures.join(" | "));
+  err.status = 502;
+  throw err;
 }
 
 const PROJECT_SYSTEM = `You are a careful software project generator. Return ONLY valid JSON, no markdown fences, with this exact shape:
@@ -227,12 +263,13 @@ app.get("/api/jobs", (_req, res) => {
 app.post("/api/generate", async (req, res) => {
   const prompt = String(req.body?.prompt || "").trim();
   const requestedName = safeProjectName(req.body?.name || "my-app");
+  const providers = normalizeProviders(req.body?.providers);
   if (prompt.length < 8) return res.status(400).json({ error: "Please describe the app in at least 8 characters." });
   if (prompt.length > 6000) return res.status(400).json({ error: "Prompt is too long (maximum 6000 characters)." });
 
   const id = crypto.randomUUID();
   const job = {
-    id, name: requestedName, prompt, status: "running",
+    id, name: requestedName, prompt, status: "running", chat: [],
     createdAt: new Date().toISOString(), finishedAt: null, error: null, files: []
   };
   jobs.set(id, job);
@@ -277,6 +314,44 @@ app.post("/api/generate", async (req, res) => {
   })();
 });
 
+app.post("/api/jobs/:id/chat", async (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job || job.status !== "completed") return res.status(404).json({ error: "Completed project not found." });
+  const message = String(req.body?.message || "").trim();
+  if (message.length < 2 || message.length > 4000) return res.status(400).json({ error: "Enter an edit request between 2 and 4000 characters." });
+  const providers = normalizeProviders(req.body?.providers);
+  const system = `You are editing an existing web app project. Return ONLY valid JSON with shape:
+{"name":"project-name","summary":"short summary","assistantMessage":"brief explanation of edits","files":[{"path":"index.html","content":"full file content"}]}
+Preserve existing functionality unless asked to change it. Return the complete updated contents of every file needed. Use only HTML/CSS/vanilla JS unless the project already uses another framework. Maximum 12 files. No secrets or API keys. Keep paths relative and safe.`;
+  try {
+    const context = JSON.stringify({ name: job.name, summary: job.summary, files: job.files });
+    const result = await callAI(system, `Current project files:\\n${context}\\n\\nUser edit request:\\n${message}`, providers);
+    const parsed = extractJson(result.content);
+    if (!Array.isArray(parsed.files) || !parsed.files.length) throw new Error("AI did not return updated project files.");
+    const cleanFiles = [];
+    for (const item of parsed.files.slice(0, 12)) {
+      const rel = String(item.path || "").replace(/\\\\/g, "/");
+      if (!rel || rel.startsWith("/") || rel.split("/").some(part => !part || part === "." || part === "..") || !/^[a-zA-Z0-9._/-]+$/.test(rel)) continue;
+      if (typeof item.content === "string") cleanFiles.push({ path: rel, content: item.content });
+    }
+    if (!cleanFiles.some(f => f.path === "index.html")) throw new Error("Updated project is missing index.html.");
+    const folder = path.join(PROJECTS_DIR, job.id);
+    for (const file of cleanFiles) {
+      const target = path.join(folder, file.path);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, file.content, "utf8");
+    }
+    job.files = cleanFiles;
+    job.summary = String(parsed.summary || job.summary || "Updated project");
+    job.chat = [...(job.chat || []), { role: "user", content: message, at: new Date().toISOString() },
+      { role: "assistant", content: String(parsed.assistantMessage || "Updated the project files."), at: new Date().toISOString(), provider: result.providerName }].slice(-40);
+    job.updatedAt = new Date().toISOString();
+    res.json({ success: true, assistantMessage: String(parsed.assistantMessage || "Updated the project files."), provider: result.providerName, files: job.files, summary: job.summary, chat: job.chat });
+  } catch (err) {
+    res.status(Number(err.status) >= 400 && Number(err.status) < 600 ? Number(err.status) : 502).json({ error: err.message || "Could not edit the project." });
+  }
+});
+
 app.post("/api/jobs/:id/deploy", async (req, res) => {
   const config = getCloudflareConfig();
   if (!config.accessKey) {
@@ -308,7 +383,7 @@ app.get("/api/jobs/:id", (req, res) => {
   res.json({
     id: job.id, name: job.name, summary: job.summary, prompt: job.prompt,
     status: job.status, createdAt: job.createdAt, finishedAt: job.finishedAt,
-    error: job.error, deployment: job.deployment || null, files: job.files.map(f => ({ path: f.path, content: f.content }))
+    error: job.error, providerName: job.providerName || null, chat: job.chat || [], deployment: job.deployment || null, files: job.files.map(f => ({ path: f.path, content: f.content }))
   });
 });
 
