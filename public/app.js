@@ -1,6 +1,124 @@
 const $ = (id) => document.getElementById(id);
 let currentJobId = null, pollTimer = null, lastJobStatus = null;
-let providerCounter = 0;
+let providerCounter = 0;\n
+let supabaseClient = null, signedInUser = null;
+const cloudSavedHashes = new Map();
+function getSupabaseConfig() {
+  return { url: $("supabaseUrl")?.value.trim().replace(/\/$/, ""), key: $("supabaseAnonKey")?.value.trim() };
+}
+function setAccountStatus(message, error=false) {
+  const el=$("accountStatus"); if(el){el.textContent=message;el.className=error?"deploy-error":"muted";}
+}
+function authHeaders() {
+  const sessionState = supabaseClient ? null : null;
+  return sessionState;
+}
+async function ensureSupabase() {
+  const cfg=getSupabaseConfig();
+  if(!window.supabase?.createClient) throw new Error("Supabase client library did not load. Check your connection.");
+  if(!cfg.url || !cfg.key) throw new Error("Enter the Supabase project URL and public anon/publishable key first.");
+  if(!supabaseClient || supabaseClient.supabaseUrl!==cfg.url) {
+    supabaseClient=window.supabase.createClient(cfg.url,cfg.key);
+    const {data}=await supabaseClient.auth.getSession();
+    signedInUser=data.session?.user||null;
+  }
+  return supabaseClient;
+}
+function updateAccountControls() {
+  const signed=Boolean(signedInUser);
+  ["signOutBtn","saveCloudProfileBtn","saveVaultBtn","loadVaultBtn"].forEach(id=>{if($(id))$(id).disabled=!signed;});
+  if(signedInUser){$("accountEmail").value=signedInUser.email||"";$("accountName").value=signedInUser.user_metadata?.full_name||"";}
+}
+async function saveCloudProfile() {
+  const client=await ensureSupabase(); if(!signedInUser) throw new Error("Sign in first.");
+  const payload={id:signedInUser.id,email:signedInUser.email,full_name:$("accountName").value.trim(),updated_at:new Date().toISOString()};
+  const {error}=await client.from("forgepilot_profiles").upsert(payload,{onConflict:"id"});
+  if(error) throw error;
+  const {error:metaError}=await client.auth.updateUser({data:{full_name:payload.full_name}});
+  if(metaError) throw metaError;
+}
+async function loadCloudProjects() {
+  const box=$("cloudProjects"); if(!box) return;
+  if(!supabaseClient || !signedInUser){box.textContent="Sign in to sync your projects.";return;}
+  const {data,error}=await supabaseClient.from("forgepilot_projects").select("id,backend_job_id,name,summary,files,chat,created_at,updated_at").order("updated_at",{ascending:false}).limit(50);
+  if(error){box.textContent="Cloud project list unavailable: "+error.message;return;}
+  box.replaceChildren();
+  if(!data?.length){const p=document.createElement("p");p.className="muted";p.textContent="No cloud projects saved yet. Generate an app to sync it here.";box.appendChild(p);return;}
+  data.forEach(project=>{
+    const row=document.createElement("div");row.className="job";
+    const left=document.createElement("div"),title=document.createElement("strong"),meta=document.createElement("small"),open=document.createElement("button");
+    title.textContent=project.name||"Untitled project";meta.textContent=fmtDate(project.updated_at)+" · "+(project.files?.length||0)+" files";
+    left.append(title,meta);open.type="button";open.className="secondary small";open.textContent="Open";
+    open.addEventListener("click",()=>openCloudProject(project));row.append(left,open);box.appendChild(row);
+  });
+}
+function openCloudProject(project) {
+  currentJobId=project.backend_job_id||("cloud-"+project.id);
+  $("resultSection").classList.remove("hidden");$("resultTitle").textContent=project.name||"Saved project";$("resultSubtitle").textContent="Loaded from your cloud account · "+fmtDate(project.updated_at);
+  $("summary").textContent=project.summary||"";renderFiles(project.files||[]);renderChat(project.chat||[]);
+  lastJobStatus="completed";$("downloadBtn").disabled=true;$("deployBtn").disabled=true;setBadge("Cloud saved","good");
+  $("resultSection").scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function persistCloudProject(job) {
+  if(!supabaseClient || !signedInUser || job?.status!=="completed" || !job.files?.length) return;
+  const signature=JSON.stringify({name:job.name,summary:job.summary,files:job.files,chat:job.chat||[]});
+  if(cloudSavedHashes.get(job.id)===signature) return;
+  cloudSavedHashes.set(job.id,signature);
+  const payload={user_id:signedInUser.id,backend_job_id:job.id,name:job.name||"Untitled project",summary:job.summary||"",files:job.files,chat:job.chat||[],updated_at:new Date().toISOString()};
+  const {error}=await supabaseClient.from("forgepilot_projects").upsert(payload,{onConflict:"user_id,backend_job_id"});
+  if(error){cloudSavedHashes.delete(job.id);setAccountStatus("Project is ready, but cloud sync failed: "+error.message,true);return;}
+  await loadCloudProjects();
+}
+async function vaultRequest(action, providers) {
+  const client=await ensureSupabase();const {data}=await client.auth.getSession();
+  if(!data.session?.access_token) throw new Error("Sign in to use the encrypted API-key vault.");
+  const cfg=getSupabaseConfig();
+  const res=await fetch(cfg.url+"/functions/v1/provider-vault",{method:"POST",headers:{"Content-Type":"application/json","apikey":cfg.key,"Authorization":"Bearer "+data.session.access_token},body:JSON.stringify({action,providers})});
+  const result=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(result.error||"Encrypted key vault request failed (HTTP "+res.status+"). Deploy the provider-vault Edge Function and set its secrets first.");
+  return result;
+}
+async function initializeAccount() {
+  try {
+    const client=await ensureSupabase();
+    const {data}=await client.auth.getSession();signedInUser=data.session?.user||null;
+    client.auth.onAuthStateChange((_event,session)=>{signedInUser=session?.user||null;updateAccountControls();if(signedInUser){loadCloudProjects();}else{$("cloudProjects").textContent="Sign in to sync your projects."; }});
+    updateAccountControls();
+    if(signedInUser){setAccountStatus("Signed in as "+(signedInUser.email||"user"));await loadCloudProjects();}
+  } catch(e) {setAccountStatus(e.message); }
+}
+async function accountAction(action) {
+  try {
+    const client=await ensureSupabase(),email=$("accountEmail").value.trim(),password=$("accountPassword").value;
+    if(action==="signup"){
+      if($("accountName").value.trim().length<2) throw new Error("Enter your name before creating an account.");
+      const {data,error}=await client.auth.signUp({email,password,options:{data:{full_name:$("accountName").value.trim()}}});if(error)throw error;
+      signedInUser=data.user;
+      if(data.session){await saveCloudProfile();setAccountStatus("Account created and signed in.");}
+      else setAccountStatus("Account created. Check your email to confirm it, then sign in.");
+    } else if(action==="signin"){
+      const {data,error}=await client.auth.signInWithPassword({email,password});if(error)throw error;
+      signedInUser=data.user;await saveCloudProfile();setAccountStatus("Signed in as "+email);
+    } else if(action==="signout"){
+      const {error}=await client.auth.signOut();if(error)throw error;signedInUser=null;setAccountStatus("Signed out.");
+    }
+    updateAccountControls();if(signedInUser)await loadCloudProjects();
+  } catch(e){setAccountStatus(e.message,true);}
+}
+async function saveVault() {
+  try {
+    const providers=getProviders();if(!providers.length)throw new Error("Add at least one complete provider first.");
+    await vaultRequest("save",providers);setAccountStatus("AI provider keys saved encrypted in your Supabase-backed vault.");
+  } catch(e){setAccountStatus(e.message,true);}
+}
+async function loadVault() {
+  try {
+    const result=await vaultRequest("load");$("providerList").replaceChildren();
+    if(Array.isArray(result.providers)&&result.providers.length)result.providers.forEach(addProvider);else addProvider();
+    saveProviders();setAccountStatus(result.providers?.length?"Loaded your saved AI providers.":"No saved providers yet.");
+  } catch(e){setAccountStatus(e.message,true);}
+}
+
 
 function getApiBase() {
   const field = $("backendUrl");
@@ -253,7 +371,18 @@ $("backendUrl").addEventListener("change", () => { saveBackendUrl(); checkHealth
 $("deployAccessKey").addEventListener("input", saveSettings);
 $("customDomain").addEventListener("input", saveSettings);
 $("saveSettingsBtn").addEventListener("click", saveSettings);
-loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);
+loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);\n
+$("supabaseUrl").addEventListener("change",()=>{try{sessionStorage.setItem("forgepilot-supabase-url",$("supabaseUrl").value.trim());}catch{};initializeAccount();});
+$("supabaseAnonKey").addEventListener("change",()=>{try{sessionStorage.setItem("forgepilot-supabase-anon-key",$("supabaseAnonKey").value.trim());}catch{};supabaseClient=null;initializeAccount();});
+$("signUpBtn").addEventListener("click",()=>accountAction("signup"));
+$("signInBtn").addEventListener("click",()=>accountAction("signin"));
+$("signOutBtn").addEventListener("click",()=>accountAction("signout"));
+$("saveCloudProfileBtn").addEventListener("click",async()=>{try{await saveCloudProfile();setAccountStatus("Profile saved to your account.");}catch(e){setAccountStatus(e.message,true);}});
+$("saveVaultBtn").addEventListener("click",saveVault);
+$("loadVaultBtn").addEventListener("click",loadVault);
+try{$("supabaseUrl").value=sessionStorage.getItem("forgepilot-supabase-url")||"";$("supabaseAnonKey").value=sessionStorage.getItem("forgepilot-supabase-anon-key")||"";}catch{}
+initializeAccount();
+
 
 
 // Three-line navigation: every menu item routes to an existing section or project tab.
