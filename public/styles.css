@@ -35,3 +35,5 @@ hr.soft-rule{border:0;border-top:1px solid #26334d;margin:22px 0}
 .file-pill:hover{border-color:#789fff}
 #preview{min-height:420px}
 @media(max-width:600px){.provider-card{padding:12px}.provider-actions>*{flex:1}.tabs{gap:3px}.tab{flex:1;padding:9px 5px;font-size:11px}.chat-bubble{max-width:100%}.chat-compose button{width:100%}}
+
+.left-hint{text-align:left;margin-top:6px;margin-bottom:10px}
