@@ -1,7 +1,8 @@
 const $ = (id) => document.getElementById(id);
 let currentJobId = null, pollTimer = null, lastJobStatus = null;
-let providerCounter = 0;\n
-let supabaseClient = null, signedInUser = null;
+let providerCounter = 0;
+
+let supabaseClient = null, signedInUser = null, supabaseClientSignature = "";
 const cloudSavedHashes = new Map();
 function getSupabaseConfig() {
   return { url: $("supabaseUrl")?.value.trim().replace(/\/$/, ""), key: $("supabaseAnonKey")?.value.trim() };
@@ -17,8 +18,9 @@ async function ensureSupabase() {
   const cfg=getSupabaseConfig();
   if(!window.supabase?.createClient) throw new Error("Supabase client library did not load. Check your connection.");
   if(!cfg.url || !cfg.key) throw new Error("Enter the Supabase project URL and public anon/publishable key first.");
-  if(!supabaseClient || supabaseClient.supabaseUrl!==cfg.url) {
+  if(!supabaseClient || supabaseClientSignature!==cfg.url+"|"+cfg.key) {
     supabaseClient=window.supabase.createClient(cfg.url,cfg.key);
+    supabaseClientSignature=cfg.url+"|"+cfg.key;
     const {data}=await supabaseClient.auth.getSession();
     signedInUser=data.session?.user||null;
   }
@@ -93,7 +95,7 @@ async function accountAction(action) {
     if(action==="signup"){
       if($("accountName").value.trim().length<2) throw new Error("Enter your name before creating an account.");
       const {data,error}=await client.auth.signUp({email,password,options:{data:{full_name:$("accountName").value.trim()}}});if(error)throw error;
-      signedInUser=data.user;
+      signedInUser=data.session ? data.user : null;
       if(data.session){await saveCloudProfile();setAccountStatus("Account created and signed in.");}
       else setAccountStatus("Account created. Check your email to confirm it, then sign in.");
     } else if(action==="signin"){
@@ -287,6 +289,7 @@ async function loadJob(id) {
     clearInterval(pollTimer); pollTimer = null;
     $("generateBtn").disabled = false; $("generateBtn").innerHTML = "<span>✦</span> Generate project";
   }
+  if(job.status==="completed") await persistCloudProject(job).catch(()=>{});
   await loadJobs();
 }
 async function loadJobs() {
@@ -371,7 +374,8 @@ $("backendUrl").addEventListener("change", () => { saveBackendUrl(); checkHealth
 $("deployAccessKey").addEventListener("input", saveSettings);
 $("customDomain").addEventListener("input", saveSettings);
 $("saveSettingsBtn").addEventListener("click", saveSettings);
-loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);\n
+loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);
+
 $("supabaseUrl").addEventListener("change",()=>{try{sessionStorage.setItem("forgepilot-supabase-url",$("supabaseUrl").value.trim());}catch{};initializeAccount();});
 $("supabaseAnonKey").addEventListener("change",()=>{try{sessionStorage.setItem("forgepilot-supabase-anon-key",$("supabaseAnonKey").value.trim());}catch{};supabaseClient=null;initializeAccount();});
 $("signUpBtn").addEventListener("click",()=>accountAction("signup"));
