@@ -11,7 +11,7 @@
   <section class="hero"><div class="eyebrow">YOUR AI BUILD PARTNER</div><h1>Build apps with<br><span>your AI providers.</span></h1><p>Add one or more API providers. ForgePilot can switch to the next configured provider if one runs out of quota or fails, then let you refine your app in chat and preview changes.</p><div class="chips"><span>Multi-provider fallback</span><span>Chat + preview</span><span>Publish workflow</span></div></section>
   <section class="card builder">
     <div class="section-title"><div><h2>AI provider keys</h2><p>Configure one or more OpenAI-compatible Chat Completions endpoints.</p></div><span class="spark">✦ AI</span></div>
-    <div class="notice">API keys are sent to your app backend only when you generate or edit. This browser keeps them in session storage for this tab session. Use only keys you are authorized to use. Never paste keys into your app prompt or generated code.</div>
+    <label for="backendUrl">Node.js backend URL</label><input id="backendUrl" type="url" placeholder="https://your-backend.example.com"><p class="hint left-hint">Leave blank only when the Node.js backend runs on this same origin. For Cloudflare Pages, enter the separate Node.js backend URL.</p><div class="notice">API keys are sent to your app backend only when you generate or edit. This browser keeps them in session storage for this tab session. Use only keys you are authorized to use. Never paste keys into your app prompt or generated code.</div>
     <div id="providerList" class="provider-list"></div>
     <div class="provider-actions"><button id="addProviderBtn" class="secondary">+ Add another AI API</button><button id="clearKeysBtn" class="secondary">Clear all keys</button></div>
     <hr class="soft-rule">
