@@ -1,0 +1,408 @@
+require("dotenv").config();
+
+const express = require("express");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+
+const app = express();
+const PORT = Number(process.env.PORT || 3000);
+const PUBLIC_DIR = path.join(__dirname, "public");
+const PROJECTS_DIR = path.join(__dirname, "generated-projects");
+
+app.disable("x-powered-by");
+app.use(express.json({ limit: "1mb" }));
+app.use(express.static(PUBLIC_DIR));
+
+fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+
+const jobs = new Map();
+
+function safeProjectName(value) {
+  const clean = String(value || "my-app")
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return clean || "my-app";
+}
+
+function extractJson(text) {
+  const trimmed = String(text || "").trim();
+  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try { return JSON.parse(unfenced); } catch (_) {}
+  const first = unfenced.indexOf("{");
+  const last = unfenced.lastIndexOf("}");
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(unfenced.slice(first, last + 1)); } catch (_) {}
+  }
+  throw new Error("The AI response did not contain valid JSON. Try a clearer prompt or another model.");
+}
+
+async function callAI(systemPrompt, userPrompt) {
+  const baseUrl = (process.env.AI_BASE_URL || "").replace(/\/+$/, "");
+  const apiKey = process.env.AI_API_KEY || "";
+  const model = process.env.AI_MODEL || "";
+
+  if (!baseUrl || !apiKey || !model || apiKey === "replace-with-your-own-key") {
+    const err = new Error("AI is not configured. Copy .env.example to .env and set AI_BASE_URL, AI_API_KEY, and AI_MODEL.");
+    err.status = 503;
+    throw err;
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    }),
+    signal: AbortSignal.timeout(120000)
+  });
+
+  const raw = await response.text();
+  let payload;
+  try { payload = JSON.parse(raw); } catch (_) { payload = { raw }; }
+  if (!response.ok) {
+    const message = payload?.error?.message || payload?.message || `AI provider returned HTTP ${response.status}`;
+    const err = new Error(message);
+    err.status = response.status;
+    throw err;
+  }
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI provider returned no message content.");
+  return content;
+}
+
+const PROJECT_SYSTEM = `You are a careful software project generator. Return ONLY valid JSON, no markdown fences, with this exact shape:
+{"name":"short-project-name","summary":"short summary","files":[{"path":"index.html","content":"full file content"}]}
+Create a small, runnable web project using only HTML, CSS, and vanilla JavaScript unless the user explicitly asks for a framework. Include index.html and any required CSS/JS files. Keep paths relative and safe. Do not include secrets, API keys, shell scripts, or instructions to exfiltrate data. Do not claim the project was executed or tested. Limit output to at most 8 files and keep each file reasonably small.`;
+
+function getCloudflareConfig() {
+  return {
+    accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
+    apiToken: process.env.CLOUDFLARE_API_TOKEN || "",
+    projectName: process.env.CLOUDFLARE_PAGES_PROJECT_NAME || "",
+    accessKey: process.env.DEPLOYMENT_ACCESS_KEY || ""
+  };
+}
+
+function mimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return ({
+    ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8", ".xml": "application/xml",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon",
+    ".woff": "font/woff", ".woff2": "font/woff2", ".pdf": "application/pdf"
+  })[ext] || "application/octet-stream";
+}
+
+async function cloudflareJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const raw = await response.text();
+  let data;
+  try { data = JSON.parse(raw); } catch (_) { data = { raw }; }
+  if (!response.ok || data.success === false) {
+    const detail = (data.errors || []).map(e => e.message).filter(Boolean).join("; ");
+    const err = new Error(detail || data.message || `Cloudflare API returned HTTP ${response.status}`);
+    err.status = response.status || 502;
+    throw err;
+  }
+  return data;
+}
+
+async function deployFilesToCloudflarePages(files) {
+  const config = getCloudflareConfig();
+  if (!config.accountId || !config.apiToken || !config.projectName) {
+    const err = new Error("Cloudflare Pages is not configured. Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and CLOUDFLARE_PAGES_PROJECT_NAME in the server environment.");
+    err.status = 503;
+    throw err;
+  }
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.projectName)) {
+    const err = new Error("CLOUDFLARE_PAGES_PROJECT_NAME must be a lowercase Pages project slug (letters, numbers, and hyphens).");
+    err.status = 400;
+    throw err;
+  }
+  if (!Array.isArray(files) || files.length === 0 || !files.some(file => file.path === "index.html")) {
+    const err = new Error("The generated project must contain index.html and at least one file.");
+    err.status = 400;
+    throw err;
+  }
+  if (files.length > 20000) {
+    const err = new Error("Cloudflare Pages supports up to 20,000 files per deployment.");
+    err.status = 400;
+    throw err;
+  }
+
+  const manifest = {};
+  const byHash = new Map();
+  for (const file of files) {
+    const rel = String(file.path || "").replace(/\\/g, "/");
+    if (!rel || rel.startsWith("/") || rel.split("/").some(part => !part || part === "." || part === "..")) continue;
+    const content = Buffer.from(String(file.content ?? ""), "utf8");
+    // Pages Direct Upload expects a 32-character hexadecimal content hash.
+    const hash = crypto.createHash("sha256").update(content).digest("hex").slice(0, 32);
+    const remotePath = `/${rel}`;
+    manifest[remotePath] = hash;
+    byHash.set(hash, { content, contentType: mimeType(rel) });
+  }
+  if (!Object.keys(manifest).length || !manifest["/index.html"]) {
+    const err = new Error("No valid files were found to deploy.");
+    err.status = 400;
+    throw err;
+  }
+
+  const base = "https://api.cloudflare.com/client/v4";
+  const authHeaders = { Authorization: `Bearer ${config.apiToken}` };
+  const projectPath = `/accounts/${encodeURIComponent(config.accountId)}/pages/projects/${encodeURIComponent(config.projectName)}`;
+
+  // Get a short-lived JWT for uploading Pages assets.
+  const tokenData = await cloudflareJson(`${base}${projectPath}/upload-token`, { headers: authHeaders });
+  const uploadToken = tokenData?.result?.jwt;
+  if (!uploadToken) throw new Error("Cloudflare did not return an upload token. Check that the Pages project exists and the API token has Pages Write permission.");
+
+  // Upload in small batches. Pages' asset endpoint accepts base64-encoded values.
+  const entries = [...byHash.entries()];
+  const batchSize = 50;
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const body = entries.slice(i, i + batchSize).map(([hash, asset]) => ({
+      base64: true,
+      key: hash,
+      value: asset.content.toString("base64"),
+      metadata: { contentType: asset.contentType }
+    }));
+    await cloudflareJson(`${base}/pages/assets/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${uploadToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+
+  // Cloudflare requires manifest as a JSON-encoded multipart form field for direct uploads.
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(manifest));
+  form.set("commit_message", "Deploy from ForgePilot");
+  form.set("commit_dirty", "false");
+  const deploymentData = await cloudflareJson(`${base}${projectPath}/deployments`, {
+    method: "POST",
+    headers: authHeaders,
+    body: form
+  });
+  const deployment = deploymentData?.result || {};
+  return {
+    id: deployment.id || null,
+    url: deployment.url || (Array.isArray(deployment.aliases) ? deployment.aliases[0] : null) || null,
+    projectName: deployment.project_name || config.projectName,
+    status: deployment.latest_stage?.status || "queued"
+  };
+}
+
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "ai-app-builder-agent",
+    time: new Date().toISOString(),
+    aiConfigured: Boolean(process.env.AI_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL && process.env.AI_API_KEY !== "replace-with-your-own-key"),
+    cloudflareConfigured: Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_PAGES_PROJECT_NAME && process.env.DEPLOYMENT_ACCESS_KEY)
+  });
+});
+
+app.get("/api/jobs", (_req, res) => {
+  const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
+  res.json({ jobs: list.map(({ id, name, prompt, status, createdAt, finishedAt, error, files }) => ({
+    id, name, prompt, status, createdAt, finishedAt, error, fileCount: files?.length || 0
+  })) });
+});
+
+app.post("/api/generate", async (req, res) => {
+  const prompt = String(req.body?.prompt || "").trim();
+  const requestedName = safeProjectName(req.body?.name || "my-app");
+  if (prompt.length < 8) return res.status(400).json({ error: "Please describe the app in at least 8 characters." });
+  if (prompt.length > 6000) return res.status(400).json({ error: "Prompt is too long (maximum 6000 characters)." });
+
+  const id = crypto.randomUUID();
+  const job = {
+    id, name: requestedName, prompt, status: "running",
+    createdAt: new Date().toISOString(), finishedAt: null, error: null, files: []
+  };
+  jobs.set(id, job);
+  res.status(202).json({ id, status: "running" });
+
+  (async () => {
+    try {
+      const responseText = await callAI(PROJECT_SYSTEM, `Project name: ${requestedName}\nUser requirements:\n${prompt}`);
+      const parsed = extractJson(responseText);
+      if (!Array.isArray(parsed.files) || parsed.files.length === 0) throw new Error("AI did not return a file list.");
+
+      const cleanFiles = [];
+      for (const item of parsed.files.slice(0, 8)) {
+        const rel = String(item.path || "").replace(/\\/g, "/");
+        if (!rel || rel.startsWith("/") || rel.split("/").some(part => part === "..") || !/^[a-zA-Z0-9._/-]+$/.test(rel)) {
+          continue;
+        }
+        if (typeof item.content !== "string") continue;
+        cleanFiles.push({ path: rel, content: item.content });
+      }
+      if (!cleanFiles.some(f => f.path === "index.html")) {
+        throw new Error("Generated project is missing index.html. Try generating again.");
+      }
+
+      const folder = path.join(PROJECTS_DIR, id);
+      fs.mkdirSync(folder, { recursive: true });
+      for (const file of cleanFiles) {
+        const target = path.join(folder, file.path);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, file.content, "utf8");
+      }
+      job.name = safeProjectName(parsed.name || requestedName);
+      job.summary = String(parsed.summary || "Generated project");
+      job.files = cleanFiles;
+      job.status = "completed";
+      job.finishedAt = new Date().toISOString();
+    } catch (err) {
+      job.status = "failed";
+      job.error = err.message || "Generation failed";
+      job.finishedAt = new Date().toISOString();
+    }
+  })();
+});
+
+app.post("/api/jobs/:id/deploy", async (req, res) => {
+  const config = getCloudflareConfig();
+  if (!config.accessKey) {
+    return res.status(503).json({ error: "Deployment is disabled until DEPLOYMENT_ACCESS_KEY is set on the server." });
+  }
+  const providedKey = String(req.get("x-deployment-access-key") || "");
+  const expected = Buffer.from(config.accessKey);
+  const provided = Buffer.from(providedKey);
+  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) {
+    return res.status(401).json({ error: "Invalid deployment access key." });
+  }
+  const job = jobs.get(req.params.id);
+  if (!job || job.status !== "completed") {
+    return res.status(404).json({ error: "Completed project not found. Generate the project before deploying." });
+  }
+  try {
+    const deployment = await deployFilesToCloudflarePages(job.files);
+    job.deployment = { ...deployment, deployedAt: new Date().toISOString() };
+    return res.json({ success: true, deployment });
+  } catch (err) {
+    const status = Number(err.status) >= 400 && Number(err.status) < 600 ? Number(err.status) : 502;
+    return res.status(status).json({ error: err.message || "Cloudflare Pages deployment failed." });
+  }
+});
+
+app.get("/api/jobs/:id", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job not found. Jobs are kept in memory until the server restarts." });
+  res.json({
+    id: job.id, name: job.name, summary: job.summary, prompt: job.prompt,
+    status: job.status, createdAt: job.createdAt, finishedAt: job.finishedAt,
+    error: job.error, deployment: job.deployment || null, files: job.files.map(f => ({ path: f.path, content: f.content }))
+  });
+});
+
+app.get("/api/jobs/:id/files/:filePath(*)", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job || job.status !== "completed") return res.status(404).json({ error: "Project file not available." });
+  const requested = String(req.params.filePath || "").replace(/\\/g, "/");
+  const file = job.files.find(f => f.path === requested);
+  if (!file) return res.status(404).json({ error: "File not found." });
+  res.type("text/plain").send(file.content);
+});
+
+app.get("/api/jobs/:id/export", async (req, res) => {
+  if (String(process.env.ENABLE_PROJECT_EXPORT || "true").toLowerCase() !== "true") {
+    return res.status(403).json({ error: "Project export is disabled." });
+  }
+  const job = jobs.get(req.params.id);
+  if (!job || job.status !== "completed") return res.status(404).json({ error: "Completed project not found." });
+
+  // Minimal ZIP writer avoids extra dependencies. Supports stored (uncompressed) files.
+  const crcTable = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  const crc32 = (buf) => {
+    let c = 0xFFFFFFFF;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  };
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const file of job.files) {
+    const nameBuf = Buffer.from(file.path, "utf8");
+    const data = Buffer.from(file.content, "utf8");
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);
+    locals.push(local, nameBuf, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(0, 12);
+    central.writeUInt16LE(0, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, nameBuf);
+    offset += local.length + nameBuf.length + data.length;
+  }
+  const centralSize = centrals.reduce((sum, b) => sum + b.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(job.files.length, 8);
+  end.writeUInt16LE(job.files.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+
+  const zip = Buffer.concat([...locals, ...centrals, end]);
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${job.name}.zip"`);
+  res.send(zip);
+});
+
+app.get("*", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`AI App Builder Agent running on http://localhost:${PORT}`);
+});

@@ -1,8 +1,8 @@
 {
-  "name": "frogpilot-ai-app-builder",
+  "name": "ai-app-builder-agent",
   "version": "1.0.0",
   "private": true,
-  "description": "ForgePilot AI app builder with Cloudflare Pages deployment",
+  "description": "A runnable Node.js AI app-builder starter using an OpenAI-compatible API such as OmniRoute.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
