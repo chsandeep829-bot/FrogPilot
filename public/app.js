@@ -2,8 +2,16 @@ const $ = (id) => document.getElementById(id);
 let currentJobId = null, pollTimer = null, lastJobStatus = null;
 let providerCounter = 0;
 
+function getApiBase() {
+  const field = $("backendUrl");
+  return String(field?.value || "").trim().replace(/\\/+$/, "");
+}
+function saveBackendUrl() {
+  try { sessionStorage.setItem("forgepilot-backend-url", getApiBase()); } catch {}
+}
 async function api(url, options = {}) {
-  const res = await fetch(url, options);
+  const base = getApiBase();
+  const res = await fetch(base ? `${base}${url}` : url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed: HTTP ${res.status}`);
   return data;
@@ -224,4 +232,6 @@ $("downloadBtn").addEventListener("click", () => { if (currentJobId) window.loca
 $("refreshBtn").addEventListener("click", () => currentJobId && loadJob(currentJobId).catch(e => showError(e.message)));
 $("reloadJobs").addEventListener("click", loadJobs);
 document.querySelectorAll(".example").forEach(btn => btn.addEventListener("click", () => { $("prompt").value = btn.dataset.prompt; $("prompt").focus(); }));
+try { $("backendUrl").value = sessionStorage.getItem("forgepilot-backend-url") || ""; } catch {}
+$("backendUrl").addEventListener("change", () => { saveBackendUrl(); checkHealth(); loadJobs(); });
 loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);
