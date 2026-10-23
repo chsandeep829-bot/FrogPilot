@@ -43,7 +43,7 @@ function normalizeProviders(input) {
   const list = Array.isArray(input) ? input : [];
   const cleaned = list.slice(0, 12).map((p, i) => ({
     name: String(p?.name || `Provider ${i + 1}`).trim().slice(0, 60),
-    baseUrl: String(p?.baseUrl || "").trim().replace(/\\/+$/, ""),
+    baseUrl: String(p?.baseUrl || "").trim().replace(/\/+$/, ""),
     apiKey: String(p?.apiKey || "").trim(),
     model: String(p?.model || "").trim()
   })).filter(p => {
@@ -54,7 +54,7 @@ function normalizeProviders(input) {
       process.env.AI_API_KEY !== "replace-with-your-own-key") {
     cleaned.push({
       name: "Server default",
-      baseUrl: process.env.AI_BASE_URL.replace(/\\/+$/, ""),
+      baseUrl: process.env.AI_BASE_URL.replace(/\/+$/, ""),
       apiKey: process.env.AI_API_KEY,
       model: process.env.AI_MODEL
     });
@@ -256,9 +256,9 @@ async function deployFilesToCloudflarePages(files, appName, customDomain = "") {
     customDomain: null,
     domainError: null
   };
-  const domain = String(customDomain || "").trim().toLowerCase().replace(/^https?:\\/\\//, "").replace(/\\/$/, "");
+  const domain = String(customDomain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\\/$/, "");
   if (domain) {
-    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(domain)) {
+    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
       result.domainError = "Enter a valid domain name without a path, such as app.example.com.";
     } else {
       try {
