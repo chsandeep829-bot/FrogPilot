@@ -76,3 +76,11 @@ body.drawer-open{overflow:hidden}
 .settings-card .provider-actions{margin-bottom:4px}
 .settings-card #saveSettingsBtn{margin-top:16px}
 .deploy-status{margin-top:10px;overflow-wrap:anywhere}
+
+.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.account-grid>div{min-width:0}
+#cloudProjects{display:grid;gap:8px;margin-top:10px}
+#cloudProjects .job{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#cloudProjects .job>div:first-child{min-width:0}
+#cloudProjects .job small{display:block;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+@media(max-width:600px){.account-grid{grid-template-columns:1fr}#cloudProjects .job{align-items:flex-start}}
