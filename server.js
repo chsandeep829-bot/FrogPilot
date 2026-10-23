@@ -157,7 +157,7 @@ async function cloudflareJson(url, options = {}) {
   return data;
 }
 
-async function deployFilesToCloudflarePages(files) {
+async function deployFilesToCloudflarePages(files, appName, customDomain = "") {
   const config = getCloudflareConfig();
   if (!config.accountId || !config.apiToken || !config.projectName) {
     const err = new Error("Cloudflare Pages is not configured. Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and CLOUDFLARE_PAGES_PROJECT_NAME in the server environment.");
@@ -180,6 +180,7 @@ async function deployFilesToCloudflarePages(files) {
     throw err;
   }
 
+  const deploymentProjectName = safeProjectName(`${config.projectName}-${appName}`).slice(0, 63);
   const manifest = {};
   const byHash = new Map();
   for (const file of files) {
@@ -200,7 +201,19 @@ async function deployFilesToCloudflarePages(files) {
 
   const base = "https://api.cloudflare.com/client/v4";
   const authHeaders = { Authorization: `Bearer ${config.apiToken}` };
-  const projectPath = `/accounts/${encodeURIComponent(config.accountId)}/pages/projects/${encodeURIComponent(config.projectName)}`;
+  const projectPath = `/accounts/${encodeURIComponent(config.accountId)}/pages/projects/${encodeURIComponent(deploymentProjectName)}`;
+
+  // Each app gets its own Pages project so publishing a new app does not overwrite another app.
+  try {
+    await cloudflareJson(`${base}${projectPath}`, { headers: authHeaders });
+  } catch (err) {
+    if (Number(err.status) !== 404) throw err;
+    await cloudflareJson(`${base}/accounts/${encodeURIComponent(config.accountId)}/pages/projects`, {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: deploymentProjectName, production_branch: "main" })
+    });
+  }
 
   // Get a short-lived JWT for uploading Pages assets.
   const tokenData = await cloudflareJson(`${base}${projectPath}/upload-token`, { headers: authHeaders });
@@ -235,12 +248,33 @@ async function deployFilesToCloudflarePages(files) {
     body: form
   });
   const deployment = deploymentData?.result || {};
-  return {
+  const result = {
     id: deployment.id || null,
     url: deployment.url || (Array.isArray(deployment.aliases) ? deployment.aliases[0] : null) || null,
-    projectName: deployment.project_name || config.projectName,
-    status: deployment.latest_stage?.status || "queued"
+    projectName: deployment.project_name || deploymentProjectName,
+    status: deployment.latest_stage?.status || "queued",
+    customDomain: null,
+    domainError: null
   };
+  const domain = String(customDomain || "").trim().toLowerCase().replace(/^https?:\\/\\//, "").replace(/\\/$/, "");
+  if (domain) {
+    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(domain)) {
+      result.domainError = "Enter a valid domain name without a path, such as app.example.com.";
+    } else {
+      try {
+        await cloudflareJson(`${base}${projectPath}/domains`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: domain })
+        });
+        result.customDomain = domain;
+      } catch (err) {
+        result.domainError = err.message || "Could not attach the custom domain. Confirm the domain is active in this Cloudflare account and DNS is configured.";
+      }
+    }
+  }
+  if (!result.url && result.customDomain) result.url = `https://${result.customDomain}`;
+  return result;
 }
 
 app.get("/api/health", (_req, res) => {
@@ -368,7 +402,7 @@ app.post("/api/jobs/:id/deploy", async (req, res) => {
     return res.status(404).json({ error: "Completed project not found. Generate the project before deploying." });
   }
   try {
-    const deployment = await deployFilesToCloudflarePages(job.files);
+    const deployment = await deployFilesToCloudflarePages(job.files, job.name, req.body?.customDomain || "");
     job.deployment = { ...deployment, deployedAt: new Date().toISOString() };
     return res.json({ success: true, deployment });
   } catch (err) {
