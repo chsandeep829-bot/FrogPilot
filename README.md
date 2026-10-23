@@ -41,7 +41,8 @@ For a remote OmniRoute server, use its reachable URL instead of `127.0.0.1`. Do 
 ## Features
 
 - Responsive web dashboard
-- AI project generation via OpenAI-compatible `/chat/completions`
+- Multiple user-supplied AI providers, tried in order; failed/quota-limited providers fall through to the next configured provider
+- Chat-based iterative edits with Chat, Preview, and Files tabs
 - Job status and recent activity (in-memory)
 - Generated HTML/CSS/JS files saved on the server
 - Project ZIP export
@@ -61,13 +62,13 @@ For a remote OmniRoute server, use its reachable URL instead of `127.0.0.1`. Do 
 
 ## Cloudflare Pages deployment setup
 
-The Deploy to Cloudflare Pages action uses the Pages Direct Upload API. The target Pages project must already exist and must be a Direct Upload project. Create a Cloudflare API token with Pages Write permission, then set these server-side environment variables:
+The Publish app action uses the Pages Direct Upload API. Create a Cloudflare API token with Pages Write permission, then set these server-side environment variables. `CLOUDFLARE_PAGES_PROJECT_NAME` is used as a short prefix; the backend creates a separate Pages project per app:
 
 - `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID.
 - `CLOUDFLARE_API_TOKEN`: API token with Pages Write permission. Never put this value in browser code or commit it.
 - `CLOUDFLARE_PAGES_PROJECT_NAME`: the existing Pages project slug (lowercase letters, digits, hyphens).
 - `DEPLOYMENT_ACCESS_KEY`: a separate long random secret that authorizes calls to this app's deploy endpoint. Enter this key in the UI when deploying.
 
-The backend calculates 32-character SHA-256 asset hashes, uploads assets to the Pages asset store, and submits the JSON-encoded `manifest` as a multipart form field to the deployment endpoint. This directly addresses the Cloudflare error that occurs when the required `manifest` field is omitted. If the target Pages project does not exist, create it in Cloudflare Pages first.
+The backend calculates 32-character SHA-256 asset hashes, uploads assets to the Pages asset store, and submits the JSON-encoded `manifest` as a multipart form field to the deployment endpoint. This directly addresses the Cloudflare error that occurs when the required `manifest` field is omitted. The backend creates the app-specific Pages project when needed.
 
 This integration only deploys generated static web assets (HTML/CSS/JS and related files) to Pages; it does not convert arbitrary Node.js/Python server apps into Workers or build Android APKs.
