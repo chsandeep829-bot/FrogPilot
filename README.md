@@ -34,6 +34,7 @@ API keys entered in the dashboard are kept in browser session storage and sent t
 Set these on the Node.js host:
 
 - `PORT` (optional; defaults to 3000)
+- `PUBLIC_APP_ORIGIN` (set to the exact deployed dashboard origin, e.g. `https://my-omni-08cae.pages.dev`, to allow its browser requests)
 - `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` (optional default provider)
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN` (keep secret; Pages Write permission)
