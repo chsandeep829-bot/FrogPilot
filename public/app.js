@@ -55,6 +55,7 @@ async function loadCloudProjects() {
   });
 }
 function openCloudProject(project) {
+  activeCloudProject=project;
   currentJobId=project.backend_job_id||("cloud-"+project.id);
   $("resultSection").classList.remove("hidden");$("resultTitle").textContent=project.name||"Saved project";$("resultSubtitle").textContent="Loaded from your cloud account · "+fmtDate(project.updated_at);
   $("summary").textContent=project.summary||"";renderFiles(project.files||[]);renderChat(project.chat||[]);
@@ -71,6 +72,27 @@ async function persistCloudProject(job) {
   if(error){cloudSavedHashes.delete(job.id);setAccountStatus("Project is ready, but cloud sync failed: "+error.message,true);return;}
   await loadCloudProjects();
 }
+
+let activeCloudProject = null;
+async function staticAiRequest(action, payload={}) {
+  const client=await ensureSupabase();const {data}=await client.auth.getSession();
+  if(!data.session?.access_token) throw new Error("Sign in and save your AI provider keys to the encrypted vault first.");
+  const cfg=getSupabaseConfig();
+  const res=await fetch(cfg.url+"/functions/v1/forgepilot-ai",{method:"POST",headers:{"Content-Type":"application/json","apikey":cfg.key,"Authorization":"Bearer "+data.session.access_token},body:JSON.stringify({action,...payload})});
+  const result=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(result.error||"Serverless AI request failed (HTTP "+res.status+"). Check the Supabase Edge Function deployment and saved AI keys.");
+  return result;
+}
+function renderCloudJob(job) {
+  activeCloudProject=job;currentJobId=job.id;
+  $("resultSection").classList.remove("hidden");$("resultTitle").textContent=job.name||"Saved project";
+  $("resultSubtitle").textContent=(job.provider?"Generated using "+job.provider+" · ":"")+"Cloud project · "+fmtDate(job.updatedAt||job.createdAt);
+  $("summary").textContent=job.summary||"";renderFiles(job.files||[]);renderChat(job.chat||[]);
+  lastJobStatus="completed";$("downloadBtn").disabled=true;$("deployBtn").disabled=true;
+  setBadge("Cloud saved","good");$("generateBtn").disabled=false;$("generateBtn").innerHTML="<span>✦</span> Generate project";
+  $("resultSection").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
 async function vaultRequest(action, providers) {
   const client=await ensureSupabase();const {data}=await client.auth.getSession();
   if(!data.session?.access_token) throw new Error("Sign in to use the encrypted API-key vault.");
@@ -320,8 +342,20 @@ $("generateBtn").addEventListener("click", async () => {
   $("resultSection").classList.remove("hidden"); $("resultTitle").textContent = name; $("resultSubtitle").textContent = "Trying configured providers in order…";
   $("summary").textContent = ""; renderFiles([]); renderChat([]); setBadge("Starting"); $("downloadBtn").disabled = true;
   try {
-    const result = await api("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, name, providers }) });
-    currentJobId = result.id; await loadJob(currentJobId);
+    let result;
+    try {
+      result = await api("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, name, providers }) });
+    } catch (backendError) {
+      if (!signedInUser) throw backendError;
+      const cloud = await staticAiRequest("generate", { prompt, name });
+      const now = new Date().toISOString();
+      const job = { id: "static-"+crypto.randomUUID(), status: "completed", name: cloud.name || name, summary: cloud.summary || "Generated with Supabase Edge Functions", files: cloud.files || [], chat: [{role:"assistant",content:cloud.assistantMessage || "Created your project.",provider:cloud.provider,at:now}], provider: cloud.provider, createdAt: now, finishedAt: now, updatedAt: now };
+      if (!job.files.some(f => f.path === "index.html")) throw new Error("AI response did not include index.html.");
+      renderCloudJob(job); await persistCloudProject(job);
+      $("accountStatus").textContent = "Generated and synced to your cloud account. Node.js backend was not used.";
+      return;
+    }
+    currentJobId = result.id; activeCloudProject = null; await loadJob(currentJobId);
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => loadJob(currentJobId).catch(e => showError(e.message)), 2500);
   } catch (err) {
@@ -335,11 +369,19 @@ $("sendChatBtn").addEventListener("click", async () => {
   if (!providers.length) return showError("Add a valid AI provider before requesting edits.");
   $("sendChatBtn").disabled = true; $("sendChatBtn").textContent = "Editing…"; clearError();
   try {
-    const result = await api(`/api/jobs/${encodeURIComponent(currentJobId)}/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, providers })
-    });
-    $("chatInput").value = ""; await loadJob(currentJobId); switchTab("previewPanel");
-    if (result.provider) $("resultSubtitle").textContent = `Updated using ${result.provider} · ${fmtDate(new Date().toISOString())}`;
+    if (String(currentJobId).startsWith("static-") && activeCloudProject) {
+      const cloud = await staticAiRequest("edit", { name: activeCloudProject.name, summary: activeCloudProject.summary, files: activeCloudProject.files, message });
+      const now = new Date().toISOString();
+      const updated = { ...activeCloudProject, name: cloud.name || activeCloudProject.name, summary: cloud.summary || activeCloudProject.summary, files: cloud.files || activeCloudProject.files, provider: cloud.provider, updatedAt: now, chat: [...(activeCloudProject.chat||[]), {role:"user",content:message,at:now}, {role:"assistant",content:cloud.assistantMessage||"Updated your project.",provider:cloud.provider,at:now}].slice(-40) };
+      renderCloudJob(updated); await persistCloudProject({...updated,status:"completed",createdAt:updated.createdAt||now});
+      $("chatInput").value = ""; switchTab("previewPanel");
+    } else {
+      const result = await api(`/api/jobs/${encodeURIComponent(currentJobId)}/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, providers })
+      });
+      $("chatInput").value = ""; await loadJob(currentJobId); switchTab("previewPanel");
+      if (result.provider) $("resultSubtitle").textContent = `Updated using ${result.provider} · ${fmtDate(new Date().toISOString())}`;
+    }
   } catch (err) { showError(err.message); }
   finally { $("sendChatBtn").disabled = false; $("sendChatBtn").textContent = "Send edit"; }
 });
