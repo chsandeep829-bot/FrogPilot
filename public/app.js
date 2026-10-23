@@ -235,3 +235,44 @@ document.querySelectorAll(".example").forEach(btn => btn.addEventListener("click
 try { $("backendUrl").value = sessionStorage.getItem("forgepilot-backend-url") || ""; } catch {}
 $("backendUrl").addEventListener("change", () => { saveBackendUrl(); checkHealth(); loadJobs(); });
 loadProviders(); checkHealth(); loadJobs(); setInterval(checkHealth, 30000);
+
+
+// Three-line navigation: every menu item routes to an existing section or project tab.
+const menuToggle = $("menuToggle");
+const appDrawer = $("appDrawer");
+const drawerBackdrop = $("drawerBackdrop");
+function setDrawerOpen(open) {
+  appDrawer.classList.toggle("open", open);
+  drawerBackdrop.classList.toggle("hidden", !open);
+  menuToggle.setAttribute("aria-expanded", String(open));
+  menuToggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+  appDrawer.setAttribute("aria-hidden", String(!open));
+  document.body.classList.toggle("drawer-open", open);
+}
+menuToggle.addEventListener("click", () => setDrawerOpen(menuToggle.getAttribute("aria-expanded") !== "true"));
+$("closeDrawerBtn").addEventListener("click", () => setDrawerOpen(false));
+drawerBackdrop.addEventListener("click", () => setDrawerOpen(false));
+document.addEventListener("keydown", event => { if (event.key === "Escape") setDrawerOpen(false); });
+document.querySelectorAll("[data-destination]").forEach(item => {
+  item.addEventListener("click", () => {
+    const destination = item.dataset.destination;
+    const tabTarget = item.dataset.tabTarget;
+    setDrawerOpen(false);
+    if (tabTarget) {
+      if ($("resultSection").classList.contains("hidden")) {
+        showError("Generate an app first to use Chat, Preview, and Files.");
+        $("buildSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        $("prompt").focus({ preventScroll: true });
+        return;
+      }
+      switchTab(tabTarget);
+    }
+    if (destination === "publishSection" && $("resultSection").classList.contains("hidden")) {
+      showError("Generate an app first, then use Publish app.");
+      $("buildSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    const target = $(destination);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+});
