@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>ForgePilot — AI App Builder</title>
+  <link rel="stylesheet" href="/public/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="logo">✦</div><div><strong>ForgePilot</strong><small>AI App Builder Agent</small></div></div>
+    <div class="status"><span class="dot"></span><span id="serverStatus">Checking server…</span></div>
+  </header>
+  <main class="layout">
+    <section class="hero">
+      <div class="eyebrow">YOUR BUILD PARTNER</div>
+      <h1>Turn your idea into<br><span>working code.</span></h1>
+      <p>Describe an app. Generate a real project, inspect its files, and export a ZIP to continue building locally.</p>
+      <div class="chips"><span>Web apps</span><span>Vanilla HTML/CSS/JS</span><span>ZIP export</span></div>
+    </section>
+    <section class="builder card">
+      <div class="section-title"><div><h2>New project</h2><p>Be specific about the features you want.</p></div><span class="spark">✦ AI</span></div>
+      <label for="projectName">Project name</label>
+      <input id="projectName" maxlength="48" value="my-first-app" placeholder="my-awesome-app">
+      <label for="prompt">What should I build?</label>
+      <textarea id="prompt" rows="6" maxlength="6000" placeholder="Build a responsive task manager with add, complete, delete, search, and local storage. Use a premium dark design."></textarea>
+      <div class="examples">
+        <button class="example" data-prompt="Build a responsive task manager with add, complete, delete, search, and local storage. Use a premium dark design.">Task manager</button>
+        <button class="example" data-prompt="Build a responsive personal portfolio with About, Skills, Projects, and Contact sections. Include a mobile navigation menu.">Portfolio</button>
+        <button class="example" data-prompt="Build a simple expense tracker with income and expense entries, category, totals, and local storage.">Expense tracker</button>
+      </div>
+      <button id="generateBtn" class="primary"><span>✦</span> Generate project</button>
+      <p class="hint">Requires an OpenAI-compatible AI endpoint configured in the server's .env file.</p>
+    </section>
+    <section id="resultSection" class="card result hidden">
+      <div class="section-title"><div><h2 id="resultTitle">Project result</h2><p id="resultSubtitle">Your project status appears here.</p></div><span id="jobBadge" class="badge">Waiting</span></div>
+      <div id="errorBox" class="error hidden"></div>
+      <div id="summary" class="summary"></div>
+      <div class="result-actions"><button id="downloadBtn" class="primary" disabled>Download project ZIP</button><button id="deployBtn" class="primary" disabled>Deploy to Cloudflare Pages</button><button id="refreshBtn" class="secondary">Refresh status</button></div><div class="deploy-auth"><label for="deployAccessKey">Deployment access key</label><input id="deployAccessKey" type="password" autocomplete="off" placeholder="Server DEPLOYMENT_ACCESS_KEY"><p class="hint">The key is sent only to this app server. Keep your Cloudflare API token in server environment variables, never in the browser.</p><div id="deployStatus" class="muted" role="status"></div></div>
+      <div class="file-area"><h3>Generated files</h3><div id="fileList" class="file-list"><p class="muted">No files yet.</p></div></div>
+      <div class="preview-area"><div class="preview-head"><h3>Preview</h3><span>Local generated HTML</span></div><iframe id="preview" title="Generated app preview" sandbox="allow-scripts"></iframe></div>
+    </section>
+    <section class="card activity">
+      <div class="section-title"><div><h2>Recent activity</h2><p>Latest jobs recorded by this server process.</p></div><button id="reloadJobs" class="secondary small">Refresh</button></div>
+      <div id="jobsList" class="jobs-list"><p class="muted">Loading activity…</p></div>
+    </section>
+    <footer>ForgePilot starter · Keep API keys on the server · Generated code is not automatically tested. Cloudflare Pages deployment requires server-side API credentials.</footer>
+  </main>
+  <script src="/public/app.js"></script>
+</body>
+</html>
