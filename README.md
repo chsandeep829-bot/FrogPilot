@@ -1,74 +1,52 @@
 # ForgePilot — AI App Builder Agent
 
-A runnable Node.js starter that uses an OpenAI-compatible chat-completions endpoint (for example, your own OmniRoute instance) to generate small web projects and export them as ZIP files.
+ForgePilot is a Node.js app-builder starter with multiple AI provider fallback, chat-based project edits, a sandboxed preview, ZIP export, and Cloudflare Pages publishing.
 
 ## Requirements
 
-- Node.js 18 or newer
-- An API-compatible AI endpoint you are authorized to use
-- An API key and a supported model ID
+- Node.js 18+
+- At least one AI provider endpoint compatible with OpenAI's `/chat/completions` API
+- Cloudflare API token with Pages Write permission for publishing
 
 ## Run locally
 
-1. Extract this ZIP.
-2. Install Node.js if needed: https://nodejs.org/
-3. Copy `.env.example` to `.env`.
-4. Edit `.env` and enter your API configuration:
-   - `AI_BASE_URL`: base URL ending in `/v1`, for example `http://127.0.0.1:20128/v1`
-   - `AI_API_KEY`: your own valid key for the endpoint
-   - `AI_MODEL`: model ID supported by that endpoint
-5. Install dependencies:
-   ```bash
-   npm install
-   ```
-6. Start the server:
-   ```bash
-   npm start
-   ```
-7. Open http://localhost:3000
+1. Copy `.env.example` to `.env`.
+2. Set `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` if you want a server-side default provider.
+3. Run `npm install`, then `npm start`.
+4. Open `http://localhost:3000`.
 
-For a remote OmniRoute server, use its reachable URL instead of `127.0.0.1`. Do not expose an unauthenticated API server to the public internet. Use HTTPS and add authentication before public deployment.
-
-## Deploy to a Node.js host
-
-- Push the project to a private GitHub repository.
-- Create a Node.js web service on your hosting provider.
-- Build/install command: `npm install`
-- Start command: `npm start`
-- Add `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_PROJECT_NAME`, `DEPLOYMENT_ACCESS_KEY`, and optionally `ENABLE_PROJECT_EXPORT` as host environment variables.
-- Use `/api/health` as the health-check path if supported.
+The dashboard also lets users enter provider names, API base URLs, model IDs, and API keys. Providers are attempted in order; when one fails, is rate-limited, or has exhausted quota, the agent tries the next configured provider. It supports OpenAI-compatible endpoints, not every vendor's proprietary API format.
 
 ## Features
 
-- Responsive web dashboard
-- Multiple user-supplied AI providers, tried in order; failed/quota-limited providers fall through to the next configured provider
-- Chat-based iterative edits with Chat, Preview, and Files tabs
-- Job status and recent activity (in-memory)
-- Generated HTML/CSS/JS files saved on the server
-- Project ZIP export
-- Cloudflare Pages Direct Upload integration with a generated manifest and asset upload
-- Basic prompt and file-path validation
-- Health endpoint reporting whether AI configuration is present
+- Multi-provider API configuration and fallback
+- AI-generated web app projects (HTML/CSS/JS by default)
+- Chat tab for iterative changes
+- Preview tab for a sandboxed local HTML preview
+- Files tab and ZIP export
+- Cloudflare Pages publishing with a separate Pages project per generated app
+- Optional custom-domain attachment when publishing
+
+API keys entered in the dashboard are kept in browser session storage and sent to the configured backend only for generation/edit requests. They are not written into generated files or job history. The backend receives these keys, so use HTTPS and do not expose an unauthenticated backend publicly. Never commit real keys to GitHub.
+
+## Backend environment variables
+
+Set these on the Node.js host:
+
+- `PORT` (optional; defaults to 3000)
+- `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` (optional default provider)
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN` (keep secret; Pages Write permission)
+- `CLOUDFLARE_PAGES_PROJECT_NAME` (short lowercase prefix for per-app Pages projects)
+- `DEPLOYMENT_ACCESS_KEY` (long random secret required by the publish endpoint)
+- `ENABLE_PROJECT_EXPORT=true` (optional)
+
+The backend creates an app-specific Cloudflare Pages project when publishing. A supplied custom domain is attached using Cloudflare's Pages API. The domain must be managed/active in the same Cloudflare account, and DNS and certificate validation may still need attention. Cloudflare's API supports creating Pages projects and attaching custom domains. <https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/create/> <https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/domains/methods/create/>
 
 ## Important limitations
 
-- This is a starter, not a fully autonomous production app factory.
-- It generates simple web projects, primarily HTML/CSS/JavaScript. It does not run generated code in a secure build sandbox, build Android APKs, deploy generated apps, or guarantee generated code is correct.
-- Job history is stored in memory and is lost on server restart. Generated files may be lost on hosts with ephemeral storage. Add a database/object storage for persistence.
-- The preview uses a sandboxed iframe, but generated project code is still untrusted.
-- Add login/authentication, rate limiting, durable storage, and request quotas before public deployment.
-- Keep API keys on the server and never commit `.env` to GitHub.
-- API compatibility varies; choose a model that supports chat completions and sufficient output length.
-
-## Cloudflare Pages deployment setup
-
-The Publish app action uses the Pages Direct Upload API. Create a Cloudflare API token with Pages Write permission, then set these server-side environment variables. `CLOUDFLARE_PAGES_PROJECT_NAME` is used as a short prefix; the backend creates a separate Pages project per app:
-
-- `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID.
-- `CLOUDFLARE_API_TOKEN`: API token with Pages Write permission. Never put this value in browser code or commit it.
-- `CLOUDFLARE_PAGES_PROJECT_NAME`: the existing Pages project slug (lowercase letters, digits, hyphens).
-- `DEPLOYMENT_ACCESS_KEY`: a separate long random secret that authorizes calls to this app's deploy endpoint. Enter this key in the UI when deploying.
-
-The backend calculates 32-character SHA-256 asset hashes, uploads assets to the Pages asset store, and submits the JSON-encoded `manifest` as a multipart form field to the deployment endpoint. This directly addresses the Cloudflare error that occurs when the required `manifest` field is omitted. The backend creates the app-specific Pages project when needed.
-
-This integration only deploys generated static web assets (HTML/CSS/JS and related files) to Pages; it does not convert arbitrary Node.js/Python server apps into Workers or build Android APKs.
+- **Cloudflare Pages hosts the static dashboard; it does not run this Node.js `server.js` API.** The backend must be deployed separately to a Node.js host for generation, chat edits, and publishing to work.
+- Jobs and generated files are currently held in memory/local server storage and can be lost when the backend restarts or uses ephemeral storage. Add a durable database/object storage for real use.
+- Previewing is not a secure build/test sandbox. Generated code is untrusted and is not automatically tested.
+- Add login, authentication, rate limiting, quotas, persistent storage, and secure build isolation before making this a public multi-user service.
+- This starter generates static web apps; it does not build Android APKs or automatically host arbitrary server-side apps.
