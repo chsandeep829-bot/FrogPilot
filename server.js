@@ -256,7 +256,7 @@ async function deployFilesToCloudflarePages(files, appName, customDomain = "") {
     customDomain: null,
     domainError: null
   };
-  const domain = String(customDomain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\\/$/, "");
+  const domain = String(customDomain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (domain) {
     if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
       result.domainError = "Enter a valid domain name without a path, such as app.example.com.";
@@ -364,7 +364,7 @@ Preserve existing functionality unless asked to change it. Return the complete u
     if (!Array.isArray(parsed.files) || !parsed.files.length) throw new Error("AI did not return updated project files.");
     const cleanFiles = [];
     for (const item of parsed.files.slice(0, 12)) {
-      const rel = String(item.path || "").replace(/\\\\/g, "/");
+      const rel = String(item.path || "").replace(/\\/g, "/");
       if (!rel || rel.startsWith("/") || rel.split("/").some(part => !part || part === "." || part === "..") || !/^[a-zA-Z0-9._/-]+$/.test(rel)) continue;
       if (typeof item.content === "string") cleanFiles.push({ path: rel, content: item.content });
     }
