@@ -4,7 +4,7 @@ let providerCounter = 0;
 
 function getApiBase() {
   const field = $("backendUrl");
-  return String(field?.value || "").trim().replace(/\\/+$/, "");
+  return String(field?.value || "").trim().replace(/\/+$/, "");
 }
 function saveBackendUrl() {
   try { sessionStorage.setItem("forgepilot-backend-url", getApiBase()); } catch {}
