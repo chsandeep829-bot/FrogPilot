@@ -37,3 +37,50 @@ hr.soft-rule{border:0;border-top:1px solid #26334d;margin:22px 0}
 @media(max-width:600px){.provider-card{padding:12px}.provider-actions>*{flex:1}.tabs{gap:3px}.tab{flex:1;padding:9px 5px;font-size:11px}.chat-bubble{max-width:100%}.chat-compose button{width:100%}}
 
 .left-hint{text-align:left;margin-top:6px;margin-bottom:10px}
+
+
+/* Accessible three-line workspace menu */
+.menu-toggle{width:42px;height:42px;flex:0 0 42px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px solid #2a3955;background:#121d32;border-radius:12px;cursor:pointer}
+.menu-toggle span{display:block;width:19px;height:2px;border-radius:2px;background:#dce7ff;transition:transform .18s,opacity .18s}
+.menu-toggle[aria-expanded="true"] span:first-child{transform:translateY(7px) rotate(45deg)}
+.menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
+.menu-toggle[aria-expanded="true"] span:last-child{transform:translateY(-7px) rotate(-45deg)}
+.topbar{gap:14px;justify-content:flex-start}
+.topbar .brand{flex:1}
+.app-drawer{position:fixed;z-index:21;inset:0 auto 0 0;width:min(340px,88vw);padding:22px 16px;background:#0c1425;border-right:1px solid #2a3955;box-shadow:18px 0 60px #0008;transform:translateX(-105%);visibility:hidden;transition:transform .22s ease,visibility .22s;overflow-y:auto}
+.app-drawer.open{transform:translateX(0);visibility:visible}
+.drawer-backdrop{position:fixed;z-index:20;inset:0;background:#02050bc7;backdrop-filter:blur(3px)}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:3px 5px 20px;border-bottom:1px solid #26334d}
+.drawer-head strong,.drawer-head small{display:block}
+.drawer-head strong{font-size:16px}
+.drawer-head small{font-size:11px;color:var(--muted);margin-top:5px}
+.drawer-close{width:36px;height:36px;border:1px solid #2a3955;border-radius:10px;background:#121d32;color:#eaf1ff;font-size:25px;cursor:pointer}
+.drawer-nav{display:grid;gap:6px;padding-top:14px}
+.drawer-nav button{display:flex;align-items:center;gap:12px;text-align:left;width:100%;padding:12px;border:1px solid transparent;border-radius:11px;background:transparent;color:#dce7ff;cursor:pointer}
+.drawer-nav button:hover,.drawer-nav button:focus-visible{background:#15233b;border-color:#304668;outline:none}
+.drawer-nav button>span:first-child{display:grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border:1px solid #304668;border-radius:10px;background:#111d32;color:#a9c6ff;font-size:17px}
+.drawer-nav button strong,.drawer-nav button small{display:block}
+.drawer-nav button strong{font-size:12px}
+.drawer-nav button small{font-size:10px;line-height:1.5;color:var(--muted);margin-top:3px}
+.drawer-label{padding:14px 12px 4px;color:#8192b3;font-size:9px;font-weight:800;letter-spacing:1.4px}
+.drawer-note{margin:20px 5px 0;padding-top:14px;border-top:1px solid #26334d;color:#8f9fbd;font-size:10px;line-height:1.6}
+body.drawer-open{overflow:hidden}
+@media(max-width:600px){.topbar{padding:0 12px;gap:10px}.topbar .brand{gap:8px}.topbar .status{max-width:42%;font-size:9px;line-height:1.35}.menu-toggle{width:38px;height:38px;flex-basis:38px}.logo{width:35px;height:35px}.brand strong{font-size:14px}.brand small{font-size:10px}}
+@media(min-width:601px){.app-drawer{width:360px}}
+
+/* Centralized settings panel */
+.settings-card{max-width:760px;margin:0 auto 18px;scroll-margin-top:90px}
+.settings-heading{font-size:14px;margin:8px 0;color:#e4ecff}
+.settings-card .section-title{margin-bottom:24px}
+.settings-card .muted{line-height:1.6}
+.settings-card .provider-actions{margin-bottom:4px}
+.settings-card #saveSettingsBtn{margin-top:16px}
+.deploy-status{margin-top:10px;overflow-wrap:anywhere}
+
+.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.account-grid>div{min-width:0}
+#cloudProjects{display:grid;gap:8px;margin-top:10px}
+#cloudProjects .job{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#cloudProjects .job>div:first-child{min-width:0}
+#cloudProjects .job small{display:block;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+@media(max-width:600px){.account-grid{grid-template-columns:1fr}#cloudProjects .job{align-items:flex-start}}

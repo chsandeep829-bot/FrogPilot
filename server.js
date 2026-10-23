@@ -326,8 +326,8 @@ app.post("/api/generate", async (req, res) => {
 
   (async () => {
     try {
-      const responseText = await callAI(PROJECT_SYSTEM, `Project name: ${requestedName}\nUser requirements:\n${prompt}`);
-      const parsed = extractJson(responseText);
+      const aiResult = await callAI(PROJECT_SYSTEM, `Project name: ${requestedName}\nUser requirements:\n${prompt}`, providers);
+      const parsed = extractJson(aiResult.content);
       if (!Array.isArray(parsed.files) || parsed.files.length === 0) throw new Error("AI did not return a file list.");
 
       const cleanFiles = [];
@@ -352,6 +352,7 @@ app.post("/api/generate", async (req, res) => {
       }
       job.name = safeProjectName(parsed.name || requestedName);
       job.summary = String(parsed.summary || "Generated project");
+      job.providerName = aiResult.providerName;
       job.files = cleanFiles;
       job.status = "completed";
       job.finishedAt = new Date().toISOString();
