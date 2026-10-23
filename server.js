@@ -12,6 +12,21 @@ const PROJECTS_DIR = path.join(__dirname, "generated-projects");
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
+const configuredAppOrigin = String(process.env.PUBLIC_APP_ORIGIN || "").replace(/\\/+$/, "");
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && configuredAppOrigin && origin !== configuredAppOrigin) {
+    return res.status(403).json({ error: "This origin is not allowed. Set PUBLIC_APP_ORIGIN to the dashboard URL on the Node.js host." });
+  }
+  if (origin && configuredAppOrigin === origin) {
+    res.setHeader("Access-Control-Allow-Origin", configuredAppOrigin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-Deployment-Access-Key");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use(express.static(PUBLIC_DIR));
 
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
