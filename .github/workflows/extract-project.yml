@@ -1,0 +1,40 @@
+name: Extract project and clean repository
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract-and-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Extract project files into repository root
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="ForgePilot_Cloudflare_Manifest_Fix.zip"
+          test -f "$archive"
+          mkdir -p /tmp/forgepilot-extract
+          unzip -q "$archive" -d /tmp/forgepilot-extract
+          source_dir="/tmp/forgepilot-extract/ForgePilot_AI_App_Builder_Agent"
+          test -f "$source_dir/server.js"
+          test -f "$source_dir/package.json"
+          cp -a "$source_dir/." .
+          rm -f "$archive"
+          rm -f .github/workflows/extract-project.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract application source and remove uploaded ZIP"
+            git push
+          fi
