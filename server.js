@@ -12,7 +12,7 @@ const PROJECTS_DIR = path.join(__dirname, "generated-projects");
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
-const configuredAppOrigin = String(process.env.PUBLIC_APP_ORIGIN || "").replace(/\\/+$/, "");
+const configuredAppOrigin = String(process.env.PUBLIC_APP_ORIGIN || "").replace(/\/+$/, "");
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && configuredAppOrigin && origin !== configuredAppOrigin) {
