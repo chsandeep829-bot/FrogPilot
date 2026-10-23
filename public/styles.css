@@ -4,3 +4,34 @@
 .deploy-success { color: #4adea1; margin-top: 8px; overflow-wrap: anywhere; }
 .deploy-error { color: #fb7185; margin-top: 8px; overflow-wrap: anywhere; }
 #deployBtn:disabled { opacity: .55; cursor: not-allowed; }
+
+
+hr.soft-rule{border:0;border-top:1px solid #26334d;margin:22px 0}
+.notice{border:1px solid #35486b;background:#101d33;color:#c9d8f5;border-radius:10px;padding:12px 14px;font-size:11px;line-height:1.6;margin-bottom:14px}
+.provider-list{display:grid;gap:12px}
+.provider-card{border:1px solid #2b3954;background:#0b1221;border-radius:13px;padding:14px}
+.provider-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.provider-card-head strong{font-size:12px;color:#dce7ff}
+.provider-card .remove-provider{padding:6px 9px;font-size:10px}
+.provider-card label{margin-top:12px}
+.provider-card input{font-size:12px;padding:10px 11px}
+.provider-note{font-size:10px;color:#8294b4;margin:9px 0 0}
+.provider-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.provider-actions button:disabled,.remove-provider:disabled{opacity:.45;cursor:not-allowed}
+.tabs{display:flex;gap:7px;border-bottom:1px solid #283651;margin-top:24px;padding-bottom:10px}
+.tab{border:1px solid transparent;background:transparent;color:#9aa8c2;padding:10px 14px;border-radius:9px;cursor:pointer;font-size:12px}
+.tab.active{background:#182744;border-color:#3c5278;color:#eaf1ff}
+.tab-panel{display:none;padding-top:16px}
+.tab-panel.active{display:block}
+.chat-messages{display:flex;flex-direction:column;gap:10px;max-height:360px;overflow:auto;padding:2px 2px 12px}
+.chat-bubble{max-width:92%;border:1px solid #2a3955;background:#0b1220;border-radius:12px;padding:11px 13px}
+.chat-bubble.user{align-self:flex-end;background:#17243b;border-color:#40577e}
+.chat-bubble.assistant{align-self:flex-start}
+.chat-bubble strong{font-size:10px;color:#a9c6ff}
+.chat-bubble p{font-size:12px;line-height:1.6;white-space:pre-wrap;margin:6px 0 0}
+.chat-compose{display:grid;gap:9px}
+.chat-compose button{justify-self:end}
+.file-pill{cursor:pointer;font-family:ui-monospace,monospace}
+.file-pill:hover{border-color:#789fff}
+#preview{min-height:420px}
+@media(max-width:600px){.provider-card{padding:12px}.provider-actions>*{flex:1}.tabs{gap:3px}.tab{flex:1;padding:9px 5px;font-size:11px}.chat-bubble{max-width:100%}.chat-compose button{width:100%}}
