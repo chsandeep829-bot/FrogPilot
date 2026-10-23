@@ -337,7 +337,7 @@ $("generateBtn").addEventListener("click", async () => {
   const prompt = $("prompt").value.trim(), name = $("projectName").value.trim() || "my-app", providers = getProviders();
   clearError();
   if (prompt.length < 8) return showError("Please describe your app in at least 8 characters.");
-  if (!providers.length) return showError("Fill in the provider name, API base URL, model ID, and API key for at least one provider.");
+  if (!providers.length && !signedInUser) return showError("Sign in to use saved cloud API keys, or fill in a provider name, HTTPS base URL, model ID, and API key.");
   $("generateBtn").disabled = true; $("generateBtn").textContent = "Generating…";
   $("resultSection").classList.remove("hidden"); $("resultTitle").textContent = name; $("resultSubtitle").textContent = "Trying configured providers in order…";
   $("summary").textContent = ""; renderFiles([]); renderChat([]); setBadge("Starting"); $("downloadBtn").disabled = true;
@@ -366,7 +366,7 @@ $("sendChatBtn").addEventListener("click", async () => {
   const message = $("chatInput").value.trim(), providers = getProviders();
   if (!currentJobId) return showError("Generate or open a project first.");
   if (message.length < 2) return;
-  if (!providers.length) return showError("Add a valid AI provider before requesting edits.");
+  if (!providers.length && !(signedInUser && String(currentJobId).startsWith("static-"))) return showError("Add a valid AI provider or sign in to use your saved cloud API keys.");
   $("sendChatBtn").disabled = true; $("sendChatBtn").textContent = "Editing…"; clearError();
   try {
     if (String(currentJobId).startsWith("static-") && activeCloudProject) {
